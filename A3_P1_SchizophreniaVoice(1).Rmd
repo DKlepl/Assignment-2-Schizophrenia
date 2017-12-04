@@ -1,0 +1,565 @@
+---
+title: "Assignment 2 Part1 - Voice In Schizophrenia"
+author: "Riccardo Fusaroli"
+date: "July 17, 2016"
+output: html_document
+---
+
+## Assignment 2 - Part 1 - Assessing voice in schizophrenia
+
+Schizophrenia has been associated with "inappropriate" voice, sometimes monotone, sometimes croaky. A few studies indicate that pitch might be an index of schizophrenia. However, an ongoing meta-analysis of the literature (which you will have a go at in the last assignment) indicates that pitch mean and standard deviation are only weak indicators of diagnosis. Can we do better with our new fancy complex skills?
+
+The corpus you are asked to analyse is a set of voice recordings from people with schizophrenia (just after first diagnosis) and 1-1 matched controls (on gender, age, education). Each participant watched 10 videos of triangles moving across the screen and had to describe them (so you have circa 10 recordings per person). I have already extracted the pitch once every 10 milliseconds and you will have to use this data to assess differences in the voice.
+
+N.B. Question to be answered via email to Celine: can you characterize voice in schizophrenia as acoustically different? Report the methods you used to answer this question and the results from the analyses. Add a couple of lines trying to interpret the results (make sense of the difference). E.g. People with schizophrenia tend to have high-pitched voice, and present bigger swings in their prosody than controls. Add a couple of lines describing limitations of the data/analyses if any is relevant.
+
+N.B. There are looots of files to be dealt with. Probably too many for your computer. This is a challenge for you. Some (complementary) possible strategies: You can select a subset of files only (and you have to justify your choice). You can learn how to use the apply() or map() functions. You can coordinate with classmates.
+
+1. In the course of this assignment you have to first select one datafile and figure out how to:
+
+```{r setup}
+#load all libraries here
+library(plyr)
+library(crqa)
+library(magrittr)
+getwd()
+
+
+#Load one datafile for excercise 1 and testing functions
+data_1 = read.table("Pitch/Study2D0S209T4_f0.txt", header = T)
+
+#save names of all files in Pitch folder (in format: Pitch/Study...txt so it can be loaded without changing wd)
+pitch_files=list.files(path="Pitch",full.names = T)
+```
+
+```{r info}
+#get info from the name of the file
+df_name = "Pitch/Study4D1S420T4_f0.txt"
+
+#cut off string and keep only from 16th letter to 18th
+Subject=as.numeric(substr(df_name, 16, 18))
+
+Diagnosis=as.factor(substr(df_name,14,14))
+
+Trial=substr(df_name,20,21)
+
+Study=as.numeric(substr(df_name,12,12))
+
+#bind together into dataframe
+info=data.frame(Subject,Diagnosis,Trial,Study)
+```
+
+- Extract "standard" descriptors of pitch: Mean, standard deviation, range
+```{r standard desc}
+#get standard descriptors
+mean=mean(data_1$f0)
+
+sd=sd(data_1$f0)
+
+#gets a vector of minimum and maximum
+range=range(data_1$f0)
+min=range[1] #first number in vector is minimun
+max=range[2]
+
+#bind together
+standard=data.frame(mean,sd,min,max)
+```
+
+- Extract less "standard" descriptors of pitch you can think of (e.g. median, iqr, mean absoluted deviation, coefficient of variation)
+```{r less standard desc}
+median=median(data_1$f0)
+
+iqr=IQR(data_1$f0)
+
+abs_mean_dev=mean(abs(data_1$f0-mean(data_1$f0)))
+
+cof_var = sd(data_1$f0, na.rm=TRUE)/mean(data_1$f0, na.rm=TRUE)*100 #get coefficient of variation as percent
+
+#bind together
+less_standard=data.frame(median,iqr,abs_mean_dev,cof_var)
+```
+
+
+- Extract "complex" descriptors: recurrence quantification analysis
+```{r rqa}
+#list needed for optimizeParam function
+par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+
+#get parameters for rqa - delay, emddim and radius
+parameters = optimizeParam(data_1$f0,data_1$f0, par, min.rec = 3.5, max.rec = 4.5)
+parameters
+
+#perform rqa - file needs to be there twice because crqa is designed for comparing two timeseries)
+results=crqa(data_1$f0,data_1$f0,delay=parameters$delay,embed=parameters$emddim,radius=parameters$radius,normalize=0,rescale=0,mindiagline = 2,minvertline = 2)
+names(results)
+
+#save rqa variables to separate variables
+delay = parameters$delay
+emddim= parameters$emddim
+radius= parameters$radius
+RR = results$RR
+DET = results$DET
+maxL = results$maxL #maximal trajectory
+L = results$L #mean trajectory
+ENTR = results$ENTR
+LAM=results$LAM
+TT = results$TT
+
+#bind together
+rqa = data.frame(RR, DET, maxL, L, ENTR, LAM, TT, delay, emddim, radius)
+```
+
+```{r bind demo}
+#cbind extracted info and merge with demo data
+data_desc=cbind(info, standard, less_standard, rqa)
+```
+
+2. Second you will have to turn the code into a function and loop through all the files (or even better use apply/sapply/lapply)
+- Remember to extract the relevant information from the file names (Participant, Diagnosis, Trial, Study)
+
+```{r info fun}
+#1. Wrap all the code from excercise 1 to functions
+# extract info about subject from name of the file
+get_info=function(file_name) {
+  
+  Subject=as.numeric(substr(file_name, 16, 18))
+  Diagnosis=as.factor(substr(file_name,14,14))
+  Trial=substr(file_name,20,21)
+  Study=as.numeric(substr(file_name,12,12))
+  
+  info_df=data.frame(Subject,Diagnosis,Trial,Study)
+  
+  return(info_df)
+}
+
+#test the function 
+get_info(df_name) #Works
+```
+
+```{r standard fun}
+#Chunk 1: turn that code to a function
+#Function 1: extract standard descriptors
+get_stand_desc= function (df) {
+  
+  mean=mean(df$f0)
+  sd=sd(df$f0)
+  range=range(df$f0)
+  min=range[1]
+  max=range[2]
+  
+  stand_desc=data.frame(mean,sd,min,max)
+  
+  return(stand_desc)
+  
+}
+
+#test function
+get_stand_desc(data_1) #Works
+```
+
+```{r less standard fun}
+#Chunk 2: turned to function
+
+get_less_stand_desc = function (df) {
+  median=median(df$f0)
+  iqr=IQR(df$f0)
+  abs_mean_dev=mean(abs(df$f0-mean(df$f0)))
+  cof_var = sd(df$f0, na.rm=TRUE)/mean(df$f0, na.rm=TRUE)*100
+  less_stand_desc=data.frame(median,iqr,abs_mean_dev,cof_var)
+  return(less_stand_desc)
+}
+
+#test function
+get_less_stand_desc(data_1) #Works
+```
+
+
+```{r rqa fun}
+#Chunk 3 turned into function +tryCatch implented not to crash the loop
+#make function to get paramaters first
+
+get_param = function (dat) {
+    #list needed for running the optimizeParam function
+  par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+  
+  param = 
+    tryCatch(
+    
+      { #this is the try function - if it fails then error function will be run
+        optimizeParam(dat$f0,dat$f0, par, min.rec = 3.5, max.rec = 4.5)
+    },
+   #move to this part if the try part fails
+     error=function(cond){
+        #return results with only NAs
+        parameters_fail=list(radius=NA,emddim=NA,delay=NA)
+        return(parameters_fail)
+        
+      }
+   ) 
+  return(param)
+}
+
+
+
+#get parameters from all and choose the common ones
+all_param = data.frame()
+n=1
+for (i in pitch_files) {
+  d=read.table(file = i,header=T)
+  param=get_param(d)
+  all_param=rbind(all_param,param)
+  
+  print(n)
+  n=n+1
+}
+
+all_param=na.omit(all_param)
+param_all = list(
+  delay=mean(all_param$delay),
+  emddim=median(all_param$emddim),
+  radius=median(all_param$radius)
+)
+
+
+ get_rqa= function (df) {
+  param = param_all
+  
+  delay=param$delay
+  emddim = param$emddim
+  radius = param$radius
+  results=
+    tryCatch(
+      #this is the try part if it gets error here it will move to the error part
+      {crqa(df$f0,df$f0,delay=param$delay,embed=param$emddim,radius=param$radius,normalize=0,rescale=0,mindiagline = 2,minvertline = 2)
+        },
+      #error part - if function fails this function will be executed instead
+      error=function(cond){
+        #return results with only NAs
+        results_fail=data.frame(RR=NA,DET=NA,maxL=NA,L=NA,ENTR=NA,LAM=NA,TT=NA)
+        return(results_fail)
+      }
+  )
+  RR = results$RR
+  DET = results$DET
+  maxL = results$maxL #maximal trajectory
+  L = results$L #mean trajectory
+  ENTR = results$ENTR
+  LAM=results$LAM
+  TT = results$TT
+  rqa_df = data.frame(delay,emddim,radius,RR,DET,maxL,L,ENTR,LAM,TT)
+  return(rqa_df)
+}
+
+#test the function
+get_rqa(data_1) #Works
+#try to crash it to see the NAs
+data_2 = read.table("Pitch/Study1D1S136T7_f0.txt",header=T)
+get_rqa(data_2)
+```
+
+```{r final loop}
+#let's loop through all files, extract the variables and rbind them all to one mega dataframe
+data_all=data.frame()
+
+n=1
+for(i in pitch_files) {
+  data=read.table(file=i,header=T)
+  info=get_info(i)
+  standard=get_stand_desc(data)
+  less_standard=get_less_stand_desc(data)
+  rqa=
+    tryCatch(
+      #this is the try part if it gets error here it will move to the error part
+      {get_rqa(data)
+        },
+      #error part - if function fails this function will be executed instead
+      error=function(cond){
+        #return results with only NAs
+        results_fail=data.frame(delay=NA,emddim=NA,radius=NA,RR=NA,DET=NA,maxL=NA,L=NA,ENTR=NA,LAM=NA,TT=NA)
+        return(results_fail)
+      }
+)
+  complete_df=cbind(info,standard,less_standard,rqa)
+  data_all=rbind(data_all,complete_df)
+  
+  print(n)
+  n=n+1
+}
+
+mean(na.omit(data_all$RR))
+
+#save the data to csv file so I don't need to run the loop again
+write.csv(data_all, file = "data_analysis.csv",row.names = F)
+```
+
+```{r tidy data}
+#load the final data to be independent of the first part of the code
+final_data = read.csv("data_analysis.csv",header=T)
+
+#load demographic data
+demo = read.table("DemoData.txt", header= T)
+
+#
+
+#the final data need some tidying before merging with demo
+
+#turn everything that should be factor to factor and numeric what should be numeric
+final_data$Diagnosis= as.factor(final_data$Diagnosis)
+
+#rename levels of Diagnosis from 1 and 0 to Scizophrenia and Control
+final_data$Diagnosis = plyr::revalue(final_data$Diagnosis, c('0'="Control", "1"="Schizophrenia"))
+
+#remove the underscore from the trial numbers
+final_data$Trial=stringr::str_replace(final_data$Trial,"_","")
+
+#merge with demo data
+complete_data = merge(final_data,demo, by=c("Subject", "Diagnosis", "Study"))
+
+#add range as a new column because you're stupid and didnt put it in the function
+complete_data$range = complete_data$max-complete_data$min
+
+#separate IDs
+complete_data=tidyr::unite(complete_data, ID, c(Subject, Diagnosis), remove=FALSE)
+
+#save the complete file
+write.csv(complete_data, "complete_data.csv",row.names = F)
+```
+
+3. Make one model per acoustic feature and test whether you can observe significant difference due to Diagnosis. Tip: Which other fixed factors should you control for (that is, include in the model)? Which random ones?
+
+```{r setup 2}
+#start over here so that you dont need to run the whole code every time
+library(ggplot2)
+library(lmerTest)
+library(magrittr)
+library(modelr)
+library(MuMIn)
+library(caret)
+
+#load complete data
+data_acoustic=read.csv("complete_data.csv")
+mean(na.omit(data_acoustic$RR))
+
+d=na.omit(data_acoustic)
+#turn variables to correct class
+data_acoustic$Subject = as.factor(data_acoustic$Subject)
+```
+
+```{r make models}
+model_mean = lmer(mean ~Diagnosis +Trial+ (1 + Trial | Study) + (1 +Trial+Diagnosis | Subject),data_acoustic,control = lmerControl(calc.derivs = FALSE)) 
+summary(model_mean) #yes
+
+model_sd = lmer(sd ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial +Diagnosis| Subject),data_acoustic)
+summary(model_sd) #no
+
+model_range=lmer (range ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis | Subject),data_acoustic)
+summary(model_range) #no
+
+model_min = lmer (min ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),data_acoustic,control = lmerControl(calc.derivs = FALSE)) 
+summary(model_min) #yes
+
+model_max = lmer (max ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),data_acoustic) 
+summary(model_max) #no
+
+model_median = lmer(median ~Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),data_acoustic,control = lmerControl(calc.derivs = FALSE))
+summary(model_median) #yes
+
+model_iqr = lmer(iqr ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),data_acoustic,control = lmerControl(calc.derivs = FALSE))
+summary(model_iqr) #no
+
+model_absmeandev = lmer(abs_mean_dev ~Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),data_acoustic)
+summary(model_absmeandev) #no
+
+model_cofvar = lmer(cof_var ~Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),data_acoustic)
+summary(model_cofvar) #yes
+
+model_RR = lmer(RR ~ Diagnosis + Trial + (1| Study) + (1+Diagnosis|Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(model_RR) #no
+
+model_DET= lmer(DET ~Diagnosis + Trial +(1 + Trial | Study) + (1 + Trial+Diagnosis | Subject),na.omit(data_acoustic))
+summary(model_DET) #yes
+
+model_maxL = lmer(maxL ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),na.omit(data_acoustic))
+summary(model_maxL) #no
+
+model_L = lmerTest::lmer(L ~ Diagnosis + Trial + (1 + Trial | Study) + (1  + Trial+Diagnosis  | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(model_L) #no
+
+model_ENTR = lmer(ENTR ~ Diagnosis + Trial + (1 + Trial | Study) + (1 + Trial+Diagnosis  | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(model_ENTR) #yes
+
+
+model_LAM = lmer(LAM ~ Diagnosis + Trial + (1 + Trial | Study) + (1 +Trial+Diagnosis  | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(model_LAM) #yes
+
+model_TT = lmer(TT ~ Diagnosis + Trial+ (1 + Trial | Study) + (1 + Trial +Diagnosis| Subject),na.omit(data_acoustic))
+summary(model_TT) #yes
+```
+- Bonus points:cross-validate the model and report the betas and standard errors from all rounds to get an idea of how robust the estimates are. 
+
+
+3a. Is study a significant predictor in these models? What should you infer from this? Does study interact with diagnosis? What should you infer from this?
+```{r predictor study}
+study_mean = lmer(mean ~Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_mean) #no
+
+study_sd = lmer(sd ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_sd) #no
+
+study_range=lmer (range ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_range) #no
+
+study_median = lmer(median ~Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_median) #no
+
+study_iqr = lmer(iqr ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_iqr) #no
+
+study_absmeandev = lmer(abs_mean_dev ~Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_absmeandev) #no
+
+study_cofvar = lmer(cof_var ~Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(study_cofvar) #no
+
+study_RR = lmer(RR ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_RR) #no
+
+study_DET= lmer(DET ~Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_DET) #no
+
+study_maxL = lmer(maxL ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_maxL) #no
+
+study_L = lmer(L ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_L) #no
+
+study_ENTR = lmer(ENTR ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_ENTR) #no
+
+study_LAM = lmer(LAM ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_LAM) #no
+
+study_TT = lmer(TT ~ Diagnosis + Trial + Study + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(study_TT) #no
+```
+Study is not a significant predictor in any of the models. The significance would be bad because it would mean that the studies were designed very differently which would make the data incomparamble.
+
+```{r interaction of study}
+interact_mean = lmer(mean ~Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_mean) #no
+
+interact_sd = lmer(sd ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_sd) #no
+
+interact_range=lmer (range ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_range) #yes but before study wasnt significant, what??
+
+interact_median = lmer(median ~Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_median) #no
+
+interact_iqr = lmer(iqr ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_iqr) #no
+
+interact_absmeandev = lmer(abs_mean_dev ~Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_absmeandev) #no
+
+interact_cofvar = lmer(cof_var ~Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(interact_cofvar) #no
+
+interact_RR = lmer(RR ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_RR) #no
+
+interact_DET= lmer(DET ~Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_DET) #no
+
+interact_maxL = lmer(maxL ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_maxL) #no
+
+interact_L = lmer(L ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_L) #no
+
+interact_ENTR = lmer(ENTR ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_ENTR) #no
+
+interact_LAM = lmer(LAM ~ Diagnosis + Trial + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_LAM) #cannot say, lme4
+
+interact_TT = lmer(scale(TT) ~ Diagnosis + scale(Trial) + Study*Diagnosis + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),na.omit(data_acoustic),control = lmerControl(calc.derivs = FALSE))
+summary(interact_TT) #cannot say, lme4
+```
+
+In range model the interaction was significant which would mean that the design of the studies influenced the 2 groups (of diagnosis) systematically differently. However since the range is not significant it won't be probably used in next models so it's not so big problem.
+
+4. Bonus Question: Compare effect size of diagnosis across the different measures. Which measure seems most sensitive?
+- Tip: to compare across measures you need to put all of them on the same scale, that is, you need to "standardize" them (z-score)
+
+After looking in the lme4 package documentation I found out that t-values reported in summary of lmer model are identical to z-scores reported by glmer and therefore I can simply compare the t-values of the models as they are.
+
+```{r compare effect sizes}
+#compare t-values of my models significant
+
+#put all significant models in a list
+model_list=list(model_mean,model_median,model_cofvar, model_RR, model_DET,model_LAM)
+
+#get z-values for the effects
+lapply(model_list,function(x) coef(summary(x))["DiagnosisSchizophrenia","t value"]) #cofvar and then mean
+```
+
+5. Bonus question. In the Clinical Info file you have additional information about the participants. Which additional parameters (e.g. age, gender) should we control for? Report the effects.
+```{r}
+#try gender - to account for differences between males and females
+gender_mean = lmer(mean ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(gender_mean) #significant
+
+gender_median = lmer(median ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(gender_median)
+
+gender_cofvar = lmer(cof_var ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(gender_cofvar)
+
+gender_RR = lmer(RR ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(gender_RR)
+
+gender_DET = lmer(DET ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(gender_DET)
+
+gender_LAM = lmer(LAM ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + Diagnosis + Trial | Subject),data_acoustic)
+summary(gender_LAM)
+```
+
+```{r}
+library(dplyr)
+
+#is this right?
+mean = lmer(scale(mean) ~ Diagnosis + (1 + Diagnosis | Subject),data_acoustic) 
+summary(mean)
+
+#or this?
+meta_data=data_acoustic %>% group_by(Diagnosis) %>% summarise(mean_mean=mean(mean),mean_sd=sd(mean),sd_mean=mean(sd),sd_sd=sd(sd))
+
+con=data_acoustic %>% filter(Diagnosis=="Control")
+con_sum = as.data.frame(as.factor(as.numeric(unique(con$ID))))
+con_sum = nrow(con_sum)
+
+s=data_acoustic %>% filter(Diagnosis=="Schizophrenia")
+s_sum = as.data.frame(as.factor(as.numeric(unique(s$ID))))
+s_sum = nrow(s_sum)
+
+meta_data_all = data.frame(
+  Article = "CogSci et.al.",
+  Year= 2017,
+  SampleSizeSchizo =s_sum,
+  SampleSizeContros = con_sum,
+  PitchMeanSchizo = meta_data$mean_mean[2],
+  PitchMeanControls = meta_data$mean_mean[1],
+  PitchMeanSchizoSD = meta_data$mean_sd[2],
+  PitchMeanControlsSD = meta_data$mean_sd[1],
+  PitchSDSchizo = meta_data$sd_mean[2],
+  PitchSDControls = meta_data$sd_mean[1],
+  PitchSDSchizoSD = meta_data$sd_sd[2],
+  PitchSDControlsSD = meta_data$sd_sd[1]
+  )
+
+write.csv(meta_data_all,"OurStudy.csv",row.names = F)
+```
+
