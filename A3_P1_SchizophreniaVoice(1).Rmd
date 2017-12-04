@@ -527,39 +527,3 @@ gender_LAM = lmer(LAM ~ Diagnosis + Trial +Gender + (1 + Trial | Study) + (1 + D
 summary(gender_LAM)
 ```
 
-```{r}
-library(dplyr)
-
-#is this right?
-mean = lmer(scale(mean) ~ Diagnosis + (1 + Diagnosis | Subject),data_acoustic) 
-summary(mean)
-
-#or this?
-meta_data=data_acoustic %>% group_by(Diagnosis) %>% summarise(mean_mean=mean(mean),mean_sd=sd(mean),sd_mean=mean(sd),sd_sd=sd(sd))
-
-con=data_acoustic %>% filter(Diagnosis=="Control")
-con_sum = as.data.frame(as.factor(as.numeric(unique(con$ID))))
-con_sum = nrow(con_sum)
-
-s=data_acoustic %>% filter(Diagnosis=="Schizophrenia")
-s_sum = as.data.frame(as.factor(as.numeric(unique(s$ID))))
-s_sum = nrow(s_sum)
-
-meta_data_all = data.frame(
-  Article = "CogSci et.al.",
-  Year= 2017,
-  SampleSizeSchizo =s_sum,
-  SampleSizeContros = con_sum,
-  PitchMeanSchizo = meta_data$mean_mean[2],
-  PitchMeanControls = meta_data$mean_mean[1],
-  PitchMeanSchizoSD = meta_data$mean_sd[2],
-  PitchMeanControlsSD = meta_data$mean_sd[1],
-  PitchSDSchizo = meta_data$sd_mean[2],
-  PitchSDControls = meta_data$sd_mean[1],
-  PitchSDSchizoSD = meta_data$sd_sd[2],
-  PitchSDControlsSD = meta_data$sd_sd[1]
-  )
-
-write.csv(meta_data_all,"OurStudy.csv",row.names = F)
-```
-
